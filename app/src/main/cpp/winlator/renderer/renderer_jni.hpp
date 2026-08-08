@@ -2,6 +2,14 @@
 
 #include <jni.h>
 #include <android/native_window_jni.h>
+#include <android/asset_manager_jni.h>
+#include <android/log.h>
+#include <android/surface_control.h>
+
+#define LOG_TAG "EGLRenderer"
+#define printf(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+
+#define HAL_PIXEL_FORMAT_BGRA_8888 5
 
 #define LOAD_METHOD_ID(method, env, cls, name, sig) \
     (method) = (env)->GetMethodID((cls), (name), (sig));
@@ -11,12 +19,18 @@
     
 class JNIXServer {
     public:
-        JNIEnv *env;
         jobject windowManager;
         jobject inputDeviceManager;
         jobject xserver;
+        jobject xserverDisplayActivity;
+        std::string displayDriver;
+        float refreshRate;
         
         JNIXServer() {}
+        
+        bool isDisplayX() {
+            return displayDriver == "displayx";
+        }
 };
 
 class JNICache {
@@ -24,6 +38,8 @@ class JNICache {
         JavaVM *vm;
         
         jclass xserverClass;
+        jmethodID getDisplayDriver;
+        jmethodID getRefreshRate;
         jfieldID windowManager;
         jfieldID inputDeviceManager;
         
@@ -55,15 +71,20 @@ class JNICache {
         jmethodID windowAttributesIsEnabled;
         
         jclass drawableClass;
-        jmethodID drawableGetData;
         jfieldID drawableID;
+        jfieldID drawableAHB;
+        jfieldID drawableStride;
         jfieldID drawableWidth;
         jfieldID drawableHeight;
+        jfieldID drawableFormat;
         
         jclass gpuImageClass;
         jmethodID gpuImageGetStride;
         jfieldID gpuImageHardwareBufferPtr;
         jfieldID gpuImageFormat;
+        
+        jclass xserverDisplayActivityClass;
+        jmethodID updateFrameRating;
         
         JNICache() {}
         
@@ -92,6 +113,9 @@ class JNICache {
             jclass drawableClass = env->FindClass("com/winlator/cmod/xserver/Drawable");
             jclass cursorClass = env->FindClass("com/winlator/cmod/xserver/Cursor");
             jclass gpuImageClass = env->FindClass("com/winlator/cmod/renderer/GPUImage");
+            jclass xserverDisplayActivityClass = env->FindClass("com/winlator/cmod/XServerDisplayActivity");
+            
+            LOAD_METHOD_ID(getDisplayDriver, env, xServerClass, "getDisplayDriver", "()Ljava/lang/String;");
             
             LOAD_FIELD_ID(inputDeviceManager, env, xServerClass, "inputDeviceManager", "Lcom/winlator/cmod/xserver/InputDeviceManager;");
             LOAD_METHOD_ID(getPointWindow, env, inputDeviceManagerClass, "getPointWindow", "()Lcom/winlator/cmod/xserver/Window;");
@@ -110,10 +134,12 @@ class JNICache {
             LOAD_FIELD_ID(windowID, env, windowClass, "id", "I");
             LOAD_FIELD_ID(windowAttributes, env, windowClass, "attributes", "Lcom/winlator/cmod/xserver/WindowAttributes;");
             
-            LOAD_METHOD_ID(drawableGetData, env, drawableClass, "getData", "()Ljava/nio/ByteBuffer;");
             LOAD_FIELD_ID(drawableID, env, drawableClass, "id", "I");
             LOAD_FIELD_ID(drawableWidth, env, drawableClass, "width", "S");
             LOAD_FIELD_ID(drawableHeight, env, drawableClass, "height", "S");
+            LOAD_FIELD_ID(drawableAHB, env, drawableClass, "backingAHB", "J");
+            LOAD_FIELD_ID(drawableStride, env, drawableClass, "stride", "S");
+            LOAD_FIELD_ID(drawableFormat, env, drawableClass, "format", "I");
             
             LOAD_METHOD_ID(cursorIsVisible, env, cursorClass, "isVisible", "()Z");
             LOAD_FIELD_ID(cursorID, env, cursorClass, "id", "I");
@@ -125,6 +151,9 @@ class JNICache {
             LOAD_FIELD_ID(gpuImageHardwareBufferPtr, env, gpuImageClass, "hardwareBufferPtr", "J");
             LOAD_FIELD_ID(gpuImageFormat, env, gpuImageClass, "format", "I");
             
+            LOAD_METHOD_ID(updateFrameRating, env, xserverDisplayActivityClass, "updateFrameRating", "(Lcom/winlator/cmod/xserver/Window;)V");
+            LOAD_METHOD_ID(getRefreshRate, env, xserverDisplayActivityClass, "getRefreshRate", "()F");
+            
             this->xserverClass = (jclass)env->NewGlobalRef(xServerClass);
             this->windowClass = (jclass)env->NewGlobalRef(windowClass);
             this->windowManagerClass = (jclass)env->NewGlobalRef(windowManagerClass);
@@ -133,6 +162,7 @@ class JNICache {
             this->drawableClass = (jclass)env->NewGlobalRef(drawableClass);
             this->cursorClass = (jclass)env->NewGlobalRef(cursorClass);
             this->gpuImageClass = (jclass)env->NewGlobalRef(gpuImageClass);
+            this->xserverDisplayActivityClass = (jclass)env->NewGlobalRef(xserverDisplayActivityClass);
         }
 };
 

@@ -4,6 +4,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Choreographer;
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import com.winlator.cmod.R;
 import android.content.Context;
@@ -23,6 +24,7 @@ import com.winlator.cmod.xserver.CursorManager;
 import com.winlator.cmod.xserver.Drawable;
 import com.winlator.cmod.xserver.InputDeviceManager;
 import com.winlator.cmod.xserver.Pointer;
+import com.winlator.cmod.xserver.Property;
 import com.winlator.cmod.xserver.Window;
 import com.winlator.cmod.xserver.WindowAttributes;
 import com.winlator.cmod.xserver.WindowManager;
@@ -43,7 +45,6 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
     static final String RENDERER_LOG_STRING = "Renderer";
     private XServer xServer;
     private Context context;
-    private final Drawable rootCursorDrawable;
     private int surfaceWidth;
     private int surfaceHeight;
     private boolean fullscreen = false;
@@ -59,12 +60,11 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
         super(context);
         this.xServer = xserver;
         this.context = context;
-        this.rootCursorDrawable = createRootCursorDrawable();
         getHolder().addCallback(this);
         xServer.windowManager.addOnWindowModificationListener(this);
         xServer.pointer.addOnPointerMotionListener(this);
         xServer.cursorManager.addOnCursorModificationListener(this);
-        nativeInit(this.context, xServer, rootCursorDrawable);
+        nativeInit(this.context, xServer);
     }
     
     @Override
@@ -93,14 +93,6 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
     public void onResume() {
         nativeResume();
     }
-    
-    private Drawable createRootCursorDrawable() {
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inScaled = false;
-        Bitmap bitmap = BitmapFactory.decodeResource(context.getResources(), R.drawable.cursor, options);
-        return Drawable.fromBitmap(bitmap);
-    }
-    
     
     public void toggleFullscreen() {
         toggleFullscreen = true;
@@ -132,7 +124,7 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
 
     public void setUnviewableWMClass(String unviewableWMName) {
         this.unviewableWMClass = unviewableWMName;
-        
+        nativeSetUnviewableWMClass(this.unviewableWMClass);
     }
     
     @Override
@@ -171,7 +163,7 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
     
     @Override
     public void onUpdateWindowContent(Window window) {
-        nativeUpdateWindowContent(window.id, window.getContent().getData());
+        nativeUpdateWindowContent(window.id);
     }
     
     @Override 
@@ -189,8 +181,14 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
         if (mask.isSet(WindowAttributes.FLAG_CURSOR)) {
             Cursor cursor = window.attributes.getCursor();
             if (cursor != null)
-                nativeBindCursor(window.id, cursor.id, cursor.isVisible(), cursor.cursorImage.getData());
+                nativeBindCursor(window.id, cursor.id, cursor.isVisible());
         }    
+    }
+    
+    @Override
+    public void onModifyWindowProperty(Window window, Property property) {
+        if (property.nameAsString().equals("WM_CLASS"))
+            nativeSetWindowClassName(window.id, property.toString());
     }
     
     @Override
@@ -222,7 +220,7 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
     @FastNative
     public native void nativeDestroySurface();
     @FastNative
-    public native void nativeInit(Context context, XServer xserver, Drawable rootCursor);
+    public native void nativeInit(Context context, XServer xserver);
     @FastNative
     public native void nativeChangeSurface(int width, int height);
     @FastNative
@@ -234,7 +232,7 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
     @FastNative
     public native void nativeFreeCursor(int id);
     @FastNative
-    public native void nativeBindCursor(int windowId, int cursorId, boolean visible, ByteBuffer data);
+    public native void nativeBindCursor(int windowId, int cursorId, boolean visible);
     @FastNative
     public native void nativeMapWindow(int id);
     @FastNative
@@ -254,9 +252,13 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
     @FastNative
     public native void nativeSetMagnifierZoom(float magnifierZoom);
     @FastNative
+    public native void nativeSetUnviewableWMClass(String unviewableWMName);
+    @FastNative
+    public native void nativeSetWindowClassName(int id, String className);
+    @FastNative
     public native void nativeUpdatePointWindow(int id);
     @FastNative
-    public native void nativeUpdateWindowContent(int id, ByteBuffer data);
+    public native void nativeUpdateWindowContent(int id);
     @FastNative
     public native void nativeReparentWindow(int id, int parentId);
     @FastNative
@@ -266,9 +268,11 @@ public class XServerView extends SurfaceView implements SurfaceHolder.Callback, 
     @FastNative
     public native void nativeStop();
     @FastNative
-    public native void nativeAddDirectContent(int windowId, Drawable drawable, GPUImage gpuImage);
+    public native void nativeAddDirectContent(int windowId, Drawable drawable);
     @FastNative
     public native void nativeUpdateDirectContent(int windowId, int drawableId);
     @FastNative
     public native void nativeRemoveDirectContent(int windowId, int pixmapId);
+    @FastNative
+    public native void nativeSetPerformanceMode(boolean perfMode);
 }
